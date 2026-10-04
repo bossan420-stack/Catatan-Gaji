@@ -66,13 +66,38 @@ label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,selec
 </div>
 <script>
 const key='catatanGajiV1';
+const CLOUD_API='https://script.google.com/macros/s/AKfycbwR6Ns741VYsl94SmFG-lqjFZROSMcNkVZvry4nwUGfT67vpDiNcnjx3yLJvob2jpnlGQ/exec';
+let cloudTimer=null;
+let cloudBusy=false;
 let db=JSON.parse(localStorage.getItem(key)||'{}');
 const monthEl=document.getElementById('month'), salaryEl=document.getElementById('salary');
 const desc=document.getElementById('desc'), cat=document.getElementById('cat'), amount=document.getElementById('amount');
 const rupiah=n=>new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(n||0);
 const now=new Date(); monthEl.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 function current(){return db[monthEl.value] ||= {salary:0,incomes:[],expenses:[]}}
-function save(){localStorage.setItem(key,JSON.stringify(db))}
+function save(){localStorage.setItem(key,JSON.stringify(db));queueCloudSave()}
+function queueCloudSave(){clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>saveCloud(monthEl.value),700)}
+async function saveCloud(month){
+  if(cloudBusy)return;
+  const d=db[month]; if(!d)return;
+  cloudBusy=true;
+  try{
+    await fetch(CLOUD_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:JSON.stringify({action:'save',data:{month,salary:Number(d.salary)||0,incomes:(d.incomes||[]).map(x=>({source:x.desc||x.source||'Pendapatan lain',amount:Number(x.amount)||0})),expenses:(d.expenses||[]).map(x=>({desc:x.desc||'',category:x.cat||x.category||'Lain-lain',amount:Number(x.amount)||0,date:x.date||''}))}})});
+  }catch(e){console.log('Cloud belum tersambung',e)}
+  cloudBusy=false;
+}
+async function loadCloud(month){
+  try{
+    const r=await fetch(CLOUD_API+'?month='+encodeURIComponent(month),{cache:'no-store'});
+    const j=await r.json();
+    if(j.ok&&j.data){
+      const d=j.data;
+      const hasCloud=Number(d.salary)>0||(d.incomes||[]).length>0||(d.expenses||[]).length>0;
+      if(hasCloud){db[month]={salary:Number(d.salary)||0,incomes:(d.incomes||[]).map(x=>({source:x.desc||x.source||'Pendapatan lain',amount:Number(x.amount)||0})),expenses:(d.expenses||[]).map(x=>({desc:x.desc||'',category:x.cat||x.category||'Lain-lain',amount:Number(x.amount)||0,date:x.date||''}))};localStorage.setItem(key,JSON.stringify(db));render();}
+      else if(db[month]&&(Number(db[month].salary)>0||(db[month].incomes||[]).length||(db[month].expenses||[]).length)){saveCloud(month)}
+    }
+  }catch(e){console.log('Cloud tidak tersedia',e)}
+}
 function render(){
  let d=current(); d.incomes=d.incomes||[];
  salaryEl.value=d.salary||'';
@@ -98,7 +123,7 @@ function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;',
 salaryEl.oninput=()=>{current().salary=Number(salaryEl.value)||0;save();render()}
 function addIncome(){let d=current(), desc=document.getElementById('incomeDesc').value.trim(), a=Number(document.getElementById('incomeAmount').value);if(!desc||!a||a<0){alert('Isi sumber pendapatan dan nominal terlebih dahulu.');return}d.incomes=d.incomes||[];d.incomes.push({desc,amount:a});save();document.getElementById('incomeDesc').value='';document.getElementById('incomeAmount').value='';render()}
 function delIncome(i){current().incomes.splice(i,1);save();render()}
-monthEl.onchange=render;
+monthEl.onchange=()=>{render();loadCloud(monthEl.value)};
 function addExpense(){
  let d=current(), a=Number(amount.value);
  if(!desc.value.trim()||!a||a<0){alert('Isi keterangan dan nominal terlebih dahulu.');return}
@@ -117,6 +142,7 @@ function importData(e){
  r.readAsText(f)
 }
 render();
+loadCloud(monthEl.value);
 </script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js");}</script>
 </body>
