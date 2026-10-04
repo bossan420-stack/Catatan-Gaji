@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Catatan Gaji</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Catatan Gaji">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f4f5f7;color:#202124}
+.app{max-width:520px;margin:auto;min-height:100vh;background:#fff}.top{padding:24px 20px 18px;background:#111;color:#fff}
+h1{margin:0;font-size:25px}.sub{opacity:.75;font-size:13px;margin-top:4px}
+main{padding:16px}.card{background:#fff;border:1px solid #e6e6e6;border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 2px 10px #00000008}
+.balance{font-size:30px;font-weight:750;margin-top:5px}.muted{color:#777;font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{background:#f6f6f6;border-radius:12px;padding:12px}.stat b{display:block;font-size:18px;margin-top:3px}
+label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select,button{width:100%;padding:12px;border-radius:11px;border:1px solid #ddd;font:inherit}button{border:0;background:#111;color:white;font-weight:700;cursor:pointer}.secondary{background:#eee;color:#222}.danger{background:#b42318}.row{display:flex;gap:8px}.row>*{flex:1}
+.item{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid #eee}.item:last-child{border:0}.amt{font-weight:750;white-space:nowrap}.smallbtn{width:auto;padding:7px 10px;font-size:12px;background:#eee;color:#222}
+.empty{text-align:center;color:#888;padding:18px}.month{font-weight:700;font-size:16px}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="top"><h1>Catatan Gaji</h1><div class="sub">Gaji & pengeluaran bulanan</div></header>
+<main>
+<section class="card">
+<label>Bulan</label><input id="month" type="month">
+<label>Gaji bersih</label><input id="salary" type="number" inputmode="numeric" placeholder="Contoh: 5000000">
+<label>Pendapatan lain</label>
+<div id="incomeList"></div>
+<div class="row"><input id="incomeDesc" placeholder="Sumber pendapatan"><input id="incomeAmount" type="number" inputmode="numeric" placeholder="Rp"></div>
+<button class="secondary" onclick="addIncome()" style="margin-top:8px">+ Tambah Pendapatan</button>
+<div class="balance" id="balance">Rp0</div><div class="muted">Sisa uang</div>
+<div class="grid" style="margin-top:12px">
+<div class="stat"><span class="muted">Total Pendapatan</span><b id="incomeTotal">Rp0</b></div>
+<div class="stat"><span class="muted">Pengeluaran</span><b id="total">Rp0</b></div>
+<div class="stat"><span class="muted">Transaksi</span><b id="count">0</b></div>
+</div>
+</section>
+
+<section class="card">
+<div class="month">Tambah Pengeluaran</div>
+<label>Keterangan</label><input id="desc" placeholder="Contoh: makan, bensin, tagihan">
+<label>Kategori</label>
+<select id="cat"><option>Makan</option><option>Transportasi</option><option>Tagihan</option><option>Belanja</option><option>Hiburan</option><option>Tabungan</option><option>Lain-lain</option></select>
+<label>Nominal</label><input id="amount" type="number" inputmode="numeric" placeholder="Rp">
+<button onclick="addExpense()" style="margin-top:12px">+ Tambah Pengeluaran</button>
+</section>
+
+<section class="card">
+<div class="month">Daftar Pengeluaran</div>
+<div id="list" class="empty">Belum ada pengeluaran.</div>
+</section>
+
+<section class="card">
+<div class="row">
+<button class="secondary" onclick="exportData()">Backup Data</button>
+<button class="danger" onclick="clearMonth()">Hapus Bulan</button>
+</div>
+<label>Impor backup</label><input id="file" type="file" accept=".json" onchange="importData(event)">
+</section>
+</main>
+</div>
+<script>
+const key='catatanGajiV1';
+let db=JSON.parse(localStorage.getItem(key)||'{}');
+const monthEl=document.getElementById('month'), salaryEl=document.getElementById('salary');
+const desc=document.getElementById('desc'), cat=document.getElementById('cat'), amount=document.getElementById('amount');
+const rupiah=n=>new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(n||0);
+const now=new Date(); monthEl.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+function current(){return db[monthEl.value] ||= {salary:0,incomes:[],expenses:[]}}
+function save(){localStorage.setItem(key,JSON.stringify(db))}
+function render(){
+ let d=current(); d.incomes=d.incomes||[];
+ salaryEl.value=d.salary||'';
+ let incomeTotal=(d.salary||0)+d.incomes.reduce((s,x)=>s+x.amount,0);
+ let total=d.expenses.reduce((s,x)=>s+x.amount,0);
+ document.getElementById('incomeTotal').textContent=rupiah(incomeTotal);
+ document.getElementById('total').textContent=rupiah(total);
+ document.getElementById('balance').textContent=rupiah(incomeTotal-total);
+ document.getElementById('count').textContent=d.expenses.length;
+
+ const il=document.getElementById('incomeList');
+ il.innerHTML=d.incomes.length ? d.incomes.map((x,i)=>
+   `<div class="item"><div><b>${esc(x.desc)}</b><div class="muted">Pendapatan lain</div></div>
+   <div style="text-align:right"><div class="amt">${rupiah(x.amount)}</div>
+   <button class="smallbtn" onclick="delIncome(${i})">Hapus</button></div></div>`).join('') : '';
+
+ const list=document.getElementById('list');
+ if(!d.expenses.length){list.className='empty';list.textContent='Belum ada pengeluaran.';return}
+ list.className='';
+ list.innerHTML=d.expenses.slice().reverse().map((x,i)=>`<div class="item"><div><b>${esc(x.desc)}</b><div class="muted">${esc(x.cat)} · ${x.date}</div></div><div style="text-align:right"><div class="amt">${rupiah(x.amount)}</div><button class="smallbtn" onclick="del(${d.expenses.length-1-i})">Hapus</button></div></div>`).join('');
+}
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+salaryEl.oninput=()=>{current().salary=Number(salaryEl.value)||0;save();render()}
+function addIncome(){let d=current(), desc=document.getElementById('incomeDesc').value.trim(), a=Number(document.getElementById('incomeAmount').value);if(!desc||!a||a<0){alert('Isi sumber pendapatan dan nominal terlebih dahulu.');return}d.incomes=d.incomes||[];d.incomes.push({desc,amount:a});save();document.getElementById('incomeDesc').value='';document.getElementById('incomeAmount').value='';render()}
+function delIncome(i){current().incomes.splice(i,1);save();render()}
+monthEl.onchange=render;
+function addExpense(){
+ let d=current(), a=Number(amount.value);
+ if(!desc.value.trim()||!a||a<0){alert('Isi keterangan dan nominal terlebih dahulu.');return}
+ d.expenses.push({desc:desc.value.trim(),cat:cat.value,amount:a,date:new Date().toLocaleDateString('id-ID')});
+ save();desc.value='';amount.value='';render();
+}
+function del(i){current().expenses.splice(i,1);save();render()}
+function clearMonth(){if(confirm('Hapus semua data bulan ini?')){delete db[monthEl.value];save();render()}}
+function exportData(){
+ const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}), a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);a.download='backup-catatan-gaji.json';a.click();URL.revokeObjectURL(a.href)
+}
+function importData(e){
+ const f=e.target.files[0];if(!f)return;const r=new FileReader();
+ r.onload=()=>{try{db=JSON.parse(r.result);save();render();alert('Backup berhasil diimpor.')}catch{alert('File backup tidak valid.')}};
+ r.readAsText(f)
+}
+render();
+</script>
+<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js");}</script>
+</body>
+</html>
